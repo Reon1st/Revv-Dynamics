@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import heroImage from './assets/images/hero.jpg'
+import processConsultationImage from './assets/images/process-consultation.jpg'
+import processPlanImage from './assets/images/process-plan.jpg'
+import processBuildImage from './assets/images/process-build.jpg'
 import {
   Phone,
   Mail,
@@ -211,7 +215,7 @@ function Hero() {
     <section id="home" ref={heroRef} className="relative min-h-[100dvh] w-full overflow-hidden">
       <div className="absolute inset-0">
         <img
-          src="https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=2400&q=80"
+          src={heroImage}
           alt="High-performance sports car ready for modification"
           className="w-full h-full object-cover object-center"
         />
@@ -778,7 +782,7 @@ function Protocol() {
       details: ['Free of charge', 'No commitment required', 'Bring the car or call us'],
       badge: '◎ Free consult',
       stat: { value: '45', unit: 'min', sub: 'avg. session' },
-      image: 'https://images.unsplash.com/photo-1666882487890-dd4e3fcae90b?auto=format&fit=crop&w=1200&q=80',
+      image: processConsultationImage,
       alt: 'Mechanic explaining and pointing out details on a car to a customer',
       meta: 'Step 1 / Listen',
     },
@@ -790,7 +794,7 @@ function Protocol() {
       details: ['Line-item parts list', 'Written fixed-price quote', 'Quote within 24 hrs'],
       badge: '◉ Zero surprises',
       stat: { value: '24', unit: 'hr', sub: 'quote turnaround' },
-      image: 'https://images.unsplash.com/photo-1742445134000-339f7e711477?auto=format&fit=crop&w=1200&q=80',
+      image: processPlanImage,
       alt: 'Mechanic inspecting open engine bay reviewing what work needs doing',
       meta: 'Step 2 / Plan',
     },
@@ -802,7 +806,7 @@ function Protocol() {
       details: ['Chassis dyno included', 'Full AFR & power log', 'Data sheet with every car'],
       badge: '⚡ Dyno verified',
       stat: { value: '487', unit: 'WHP', sub: 'last build' },
-      image: 'https://images.unsplash.com/photo-1708745427274-d5de5122fd57?auto=format&fit=crop&w=1200&q=80',
+      image: processBuildImage,
       alt: 'Mechanic hands-on working on car engine in garage with tools',
       meta: 'Step 3 / Build',
     },
@@ -1102,17 +1106,55 @@ function Field({ label, type = 'text', required, value, onChange, placeholder })
   )
 }
 
+// ponytail: 2.5MB total raw attachment cap — base64 + JSON overhead must stay under Vercel's 4.5MB function body limit.
+// Upgrade path if bigger photos are needed: upload straight to Vercel Blob from the client, send only the URLs here.
+const MAX_ATTACHMENTS_BYTES = 2.5 * 1024 * 1024
+
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(reader.result.split(',')[1])
+  reader.onerror = reject
+  reader.readAsDataURL(file)
+})
+
 function ContactForm() {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', vehicle: '', message: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', vehicle: '', message: '', website: '' })
   const [files, setFiles] = useState([])
   const [status, setStatus] = useState('idle')
+  const [errorMsg, setErrorMsg] = useState('')
   const dropRef = useRef(null)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     if (!form.name || !form.email || !form.message) return
+
+    if (files.reduce((sum, f) => sum + f.size, 0) > MAX_ATTACHMENTS_BYTES) {
+      setErrorMsg('Attached photos are too large (max 2.5MB total) — remove one and try again.')
+      setStatus('error')
+      return
+    }
+
     setStatus('sending')
-    setTimeout(() => setStatus('sent'), 1200)
+    try {
+      const attachments = await Promise.all(
+        files.map(async (f) => ({ filename: f.name, content: await fileToBase64(f) }))
+      )
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, attachments }),
+      })
+      if (res.ok) {
+        setStatus('sent')
+      } else {
+        const { error } = await res.json().catch(() => ({}))
+        setErrorMsg(error === 'Attachments too large' ? 'Attached photos are too large — remove one and try again.' : '')
+        setStatus('error')
+      }
+    } catch {
+      setErrorMsg('')
+      setStatus('error')
+    }
   }
 
   const handleFiles = (newFiles) => {
@@ -1200,6 +1242,20 @@ function ContactForm() {
           <div className="lg:col-span-7">
             <form onSubmit={handleSubmit} className="bg-white/[0.03] border border-white/[0.09] rounded-5xl p-7 sm:p-10 backdrop-blur-sm shadow-2xl shadow-black/40">
 
+              {/* Honeypot — hidden from real users, bots fill every field */}
+              <div style={{ position: 'absolute', left: '-9999px', top: 0 }} aria-hidden="true">
+                <label htmlFor="website">Website</label>
+                <input
+                  type="text"
+                  id="website"
+                  name="website"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={form.website}
+                  onChange={(e) => setForm({ ...form, website: e.target.value })}
+                />
+              </div>
+
               {/* Form header */}
               <div className="flex items-center justify-between mb-8 pb-6 border-b border-white/[0.08]">
                 <div>
@@ -1261,7 +1317,11 @@ function ContactForm() {
                   </div>
 
                   <div className="mt-7 pt-6 border-t border-white/[0.07] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <p className="text-xs text-white/30">Fields marked <span className="text-primary">*</span> are required.</p>
+                    <p className="text-xs text-white/30">
+                      {status === 'error'
+                        ? <span className="text-red-400">{errorMsg || 'Something went wrong — please try again.'}</span>
+                        : <>Fields marked <span className="text-primary">*</span> are required.</>}
+                    </p>
                     <button
                       type="submit"
                       disabled={status === 'sending'}
