@@ -74,12 +74,57 @@ It:
 4. Caps attachments at 5 files / 2.5 MB total raw.
 5. Escapes every user-supplied string (`escapeHtml`) before dropping it into the HTML
    email template, so a `<script>` in the "vehicle" field is inert.
-6. POSTs to the Resend API with a plain-text fallback, an HTML version styled to match the
-   site, and `reply_to` set to the customer's address — the shop hits Reply and it goes
-   straight to them.
+6. Builds the notification email (below) and POSTs it to the Resend API.
 
 The `RESEND_API_KEY` never leaves the server. The browser only ever talks to
 `/api/contact`.
+
+#### The inquiry email
+
+When a visitor submits the form, the shop owner gets a **custom HTML + CSS email** —
+not a raw field dump. `buildEmailHtml()` renders it, and every value the customer typed is
+carried into it:
+
+```
+┌────────────────────────────────────────────┐
+│  ╱ REVV DYNAMICS            (dark #0F0F14) │   ← branded header, amber wordmark
+│  New build inquiry                         │
+├────────────────────────────────────────────┤
+│  NAME      Marco Reyes                     │
+│  EMAIL     marco@example.com  (mailto:)    │   ← clickable, amber link
+│  PHONE     (555) 555-0100  ·  or "—"       │
+│  VEHICLE   2004 Subaru WRX  ·  or "—"      │
+│                                            │
+│  ┌──────────────────────────────────────┐  │
+│  │ BUILD GOALS                          │  │   ← white card, message preserved
+│  │ Want ~350whp, daily driveable...     │  │      with line breaks intact
+│  └──────────────────────────────────────┘  │
+│  📎 2 photos attached                      │
+├────────────────────────────────────────────┤
+│  Sent from the Revv Dynamics contact form  │
+└────────────────────────────────────────────┘
+```
+
+Details that matter:
+
+- **Styling is inline CSS, not a stylesheet.** Gmail, Outlook, and friends strip `<style>`
+  blocks and don't do external CSS — inline `style=""` attributes on tables is the only
+  thing that renders consistently across mail clients. That's why the template looks the
+  way it does rather than reusing the site's Tailwind classes.
+- **It matches the site's design language** — same `#0F0F14` deep header, same amber
+  `#F59E0B` / `#D97706` accents, same monospace uppercase micro-labels.
+- **Every field is escaped** before interpolation, so the email is safe even if someone
+  types HTML into the vehicle box.
+- **Empty optional fields render as `—`**, so the layout never collapses when phone or
+  vehicle is left blank.
+- **The message body keeps its line breaks** (`white-space: pre-wrap`) — a customer's
+  bulleted list of goals arrives as a bulleted list.
+- **Photos ride along as real attachments** (up to 5), with a count noted in the body so
+  the owner knows to look for them.
+- **A plain-text version is sent alongside** the HTML, so text-only clients and spam
+  filters both get something readable.
+- **`reply_to` is the customer's address.** The owner hits Reply and it goes straight to
+  them, not to the sending domain.
 
 ---
 
